@@ -1,0 +1,23 @@
+[package]
+name = "azure-ost-core"
+version = "0.1.0"
+authors = ["Cerulan Lumina <cerulan@cerulan.net>"]
+
+[features]
+lamemp3 = ["lame"]
+
+[dependencies]
+lame = {version = "0.1.3", optional = true}
+lewton = "0.9.3"
+serde_json = "1.0.33"
+serde = "1.0.82"
+sha1 = {version = "0.6.0", features = ["serde"]}
+serde_derive = "1.0.82"
+num_cpus = "1.9.0"
+threadpool = "1.7.1"
+vorbis = "0.1.0"
+fallible-iterator = "0.1.6"
+
+[dependencies.sqpack_blue]
+git = "https://github.com/CerulanLumina/sqpack-blue"
+branch = "dev"
