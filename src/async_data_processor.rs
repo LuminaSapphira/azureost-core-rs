@@ -26,7 +26,7 @@ fn get_index_from_map_or_insert<'a>(map: &'a mut HashMap<String, Index>, exf: &E
 
 pub fn async_processor<O: 'static>(thread_count: usize,
                                       ffxiv: FFXIV,
-                                      work: Vec<(usize, ExFileIdentifier)>,
+                                      work: &Vec<(usize, ExFileIdentifier)>,
                                       f: fn(usize, Vec<u8>) -> ThreadStatus<O>)
     -> Receiver<ThreadStatus<O>>
     where O: Send
@@ -34,7 +34,7 @@ pub fn async_processor<O: 'static>(thread_count: usize,
 
     let (tx, rx) = mpsc::channel();
 
-    let distributed_work = split_work(&work, thread_count);
+    let distributed_work = split_work(work, thread_count);
 
     let pool = ThreadPool::new(thread_count);
 

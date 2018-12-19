@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use ::{ExportMode, BGMOptions, AzureOptions};
@@ -24,24 +24,28 @@ struct EXFCollection {
     pub uncollected: Vec<TrackManifest>,
 }
 
+//fn get_sheet_index(ffxiv: FFXIV) ->
+
 pub fn process(azure_opts: AzureOptions,
                bgm_opts: BGMOptions,
                process_indicies: Vec<usize>) -> Result<(), AzureError> {
 
 //    convert(process_indicies.into_iter()).
 
-    FFXIV::new(&Path::new(&azure_opts.sqpack))
-        .ok_or(AzureError::NoFFXIV)
+    Ok(azure_opts.ffxiv.clone())
+        // get the Sheet index
         .and_then(|ffxiv| {
             ffxiv.get_sheet_index().map_err(|e| e.into())
                 .map(|a| (ffxiv, a))
         })
+        // Get the BGM Sheet using the sheet index
         .and_then(|(ffxiv, sheet_index)| {
             ffxiv.get_sheet(&String::from("bgm"),
                             SheetLanguage::None, &sheet_index)
                 .map_err(|e| e.into())
                 .map(|a| (ffxiv, a))
         })
+        // Read the BGM Sheet to transform the requested indices into ExFileIdentifiers
         .and_then(|(ffxiv, sheet)| {
             let invalid_indices = process_indicies.iter().cloned().filter(|index| {
                 *index >= sheet.rows.len()
@@ -82,13 +86,14 @@ pub fn process(azure_opts: AzureOptions,
                 }
             }
         })
+        // hash the exfile SCDs
         .and_then(|(ffxiv, exfiles)| {
             let hashes =
                 if bgm_opts.compare_file.is_some() || bgm_opts.save_file.is_some() {
                     let recv = async_processor(
                         azure_opts.thread_count,
                         ffxiv.clone(),
-                        exfiles.iter().cloned().collect(),
+                        &exfiles,
                         |index, data| {
                             ThreadStatus::Continue((index, Sha1::from(data).digest()))
                         });
@@ -124,21 +129,52 @@ pub fn process(azure_opts: AzureOptions,
                 };
             Ok((ffxiv, exfiles, hashes))
         })
+        // partition exfiles into collected and uncollected
         .and_then(|(ffxiv, exfiles, hashes)| {
-            exfiles.iter().cloned()
-                .map(|(index, exf)| {
-                    TrackManifest {
-                        index,
-                        name: exf.get_exfile_string().clone(),
-                        sha1: hashes.map(|h| h[&index]).unwrap_or(Sha1::new().digest()),
-                    }
+            let collects: (Vec<TrackManifest>, Vec<TrackManifest>) =
+                exfiles.into_iter()
+                    .map(|(index, exf)| {
+                        TrackManifest {
+                            index,
+                            name: exf.get_exfile_string().clone(),
+                            sha1: hashes.as_ref().map(|h| h[&index]).unwrap_or_else(|| Sha1::new().digest()),
+                        }
+                    })
+                    .partition(|track_mf| {
+                        bgm_opts.compare_file.as_ref()
+                            .map(|compare| {
+                                compare.files.get(&track_mf.index)
+                                    .map(|compare_track_mf| {
+                                        compare_track_mf.sha1.ne(&track_mf.sha1)
+                                    })
+                                    .unwrap_or(true)
+                            }).unwrap_or(true)
+                    });
+            Ok((ffxiv, collects))
+        })
+        // save manifest file
+        .and_then(|(ffxiv,
+                       (collects, uncollects))| {
+            bgm_opts.save_file.as_ref()
+                .and_then(|save_file| {
+                    Some(::serde_json::to_writer_pretty(save_file,
+                                                        &ManifestFile {
+                                                            files: collects.iter().cloned().chain(uncollects.iter().cloned())
+                                                                .map(|t_mf| (t_mf.index, t_mf))
+                                                                .collect::<BTreeMap<usize, TrackManifest>>()
+                                                        }))
                 })
-                .partition(|track_mf| {
-                    bgm_opts.compare_file
-                        .map(|compare| {
-
-                        })
-                });
+                .map(|save_res| {
+                    save_res.map_err(|_| AzureError::ErrorWritingSaveFile)
+                })
+                .unwrap_or(Ok(()))
+                .map(|_| (ffxiv, collects, uncollects))
+        })
+        .and_then(|f| {
+            bgm_opts.export_mode.as_ref()
+                .map(|export_mode| {
+                    // TODO left off here
+                })
         })
 //    let sheet = ffxiv.get_sheet(
 //        &String::from("bgm"),

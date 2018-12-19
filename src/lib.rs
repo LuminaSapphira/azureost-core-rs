@@ -22,6 +22,7 @@ pub mod manifest;
 pub use process_all::process_all;
 
 use errors::AzureError;
+use sqpack_blue::FFXIV;
 
 pub enum ExportMode {
     #[cfg(feature="lamemp3")]
@@ -36,7 +37,7 @@ pub struct BGMOptions {
 }
 
 pub struct AzureOptions {
-    sqpack: String,
+    ffxiv: FFXIV,
     thread_count: usize
 }
 
@@ -52,7 +53,7 @@ impl BGMOptions {
             compare_file.map_or(Ok(None), |f_str| {
                 OpenOptions::new().read(true).open(f_str).map_err(|err| {
                     AzureError::UnableToReadCompareFile
-                }).and_then(|mut compare_file| {
+                }).and_then(|compare_file| {
                     ::serde_json::from_reader::<File, manifest::ManifestFile>(compare_file).map_err(|err| {
                         AzureError::UnableToReadCompareFile
                     })
@@ -65,6 +66,16 @@ impl BGMOptions {
                 export_mode
             })
         })
+    }
+}
+
+impl AzureOptions {
+    pub fn new(ffxiv_path: PathBuf, thread_count: usize) -> Result<AzureOptions, AzureError> {
+        Ok(ffxiv_path.as_path())
+            .and_then(|ff| FFXIV::new(ff).ok_or(AzureError::NoFFXIV))
+            .and_then(|ffxiv| {
+                Ok(AzureOptions{ ffxiv, thread_count })
+            })
     }
 }
 
