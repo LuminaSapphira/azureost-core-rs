@@ -15,6 +15,7 @@ use std::fs::{OpenOptions, File};
 mod process_all;
 mod general_processor;
 mod async_data_processor;
+mod exporting;
 
 pub mod errors;
 pub mod manifest;
@@ -24,11 +25,7 @@ pub use process_all::process_all;
 use errors::AzureError;
 use sqpack_blue::FFXIV;
 
-pub enum ExportMode {
-    #[cfg(feature="lamemp3")]
-    MP3(PathBuf),
-    OGG(PathBuf),
-}
+pub use exporting::ExportMode;
 
 pub struct BGMOptions {
     save_file: Option<File>,
@@ -84,6 +81,54 @@ pub fn export_one() {
 }
 
 pub fn bgm_csv() {
+
+}
+
+pub enum AzureProcessPhase {
+    Begin,
+    ReadingBGMSheet,
+    Hashing,
+    Collecting,
+    SavingManifest,
+    Exporting,
+}
+
+//pub enum ProcessResult
+//
+pub enum AzureProcessStatus {
+    Start,
+    Continue,
+    Completed,
+}
+
+pub struct AzureProcessBegin {
+    total_operations_count: usize,
+}
+
+pub struct AzureProcessProgress {
+    total_operations_count: usize,
+    operations_progress: usize,
+    current_operation: usize,
+    is_skip: bool,
+}
+
+pub struct AzureProcessNonfatalError {
+    current_operation: usize,
+}
+
+pub struct AzureProcessComplete {
+    operations_completed: usize,
+    operations_errored: usize,
+}
+
+pub trait AzureCallbacks {
+    fn pre_phase(phase: AzureProcessPhase);
+    fn post_phase(phase: AzureProcessPhase);
+
+    fn process_begin(info: AzureProcessBegin);
+    fn process_progress(info: AzureProcessProgress);
+    fn process_nonfatal_error(info: AzureProcessNonfatalError);
+    fn process_complete(info: AzureProcessComplete);
 
 }
 

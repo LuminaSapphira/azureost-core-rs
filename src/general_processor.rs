@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::fs::DirBuilder;
 
-use ::{ExportMode, BGMOptions, AzureOptions};
+use ::{ExportMode, BGMOptions, AzureOptions, AzureCallbacks};
 use ::errors::AzureError;
 use ::async_data_processor::{ThreadStatus, async_processor};
 use ::sqpack_blue::{FFXIV, ExFileIdentifier, FFXIVError};
@@ -26,9 +27,11 @@ struct EXFCollection {
 
 //fn get_sheet_index(ffxiv: FFXIV) ->
 
-pub fn process(azure_opts: AzureOptions,
+pub fn process<AC>(azure_opts: AzureOptions,
                bgm_opts: BGMOptions,
-               process_indicies: Vec<usize>) -> Result<(), AzureError> {
+               process_indicies: Vec<usize>,
+               callbacks: &AC) -> Result<(), AzureError>
+    where AC: AzureCallbacks + Sized{
 
 //    convert(process_indicies.into_iter()).
 
@@ -170,12 +173,38 @@ pub fn process(azure_opts: AzureOptions,
                 .unwrap_or(Ok(()))
                 .map(|_| (ffxiv, collects, uncollects))
         })
-        .and_then(|f| {
-            bgm_opts.export_mode.as_ref()
-                .map(|export_mode| {
-                    // TODO left off here
-                })
-        })
+        .map(|_| ())
+//        .and_then(|(ffxiv, collects, uncollects)| {
+//            bgm_opts.export_mode.as_ref()
+//                .and_then(|export_mode| {
+//                    Some({
+//                        DirBuilder::new()
+//                            .recursive(true)
+//                            .create(export_mode.get_path())
+//                            .and_then(|_| {
+//                                collects.iter().map(|t_mf| {
+//                                    ffxiv.get_exfile(&t_mf.name)
+//                                        .map(|exf| (t_mf.index, exf))
+//                                }).collect::<Result<Vec<_>, _>>()
+//                                    .and_then(|work| {
+//                                        let index_name_map = work
+//                                            .iter().map(|(index, exf)| (index, exf.get_exfile_string().clone()))
+//                                            .collect::<HashMap<usize, String>>();
+//                                        async_processor(azure_opts.thread_count, ffxiv.clone(), &work, |index, data| {
+//                                            index_name_map.get(&index).map_or(ThreadStatus::Error(format!("Invalid index passed to exporter! Index: {}", index)), |f_name| {
+//                                                let a: Vec<&str> = f_name.split("/").skip(1).collect();
+//                                                export_mode.export_file(a.join("/"), collect);
+//                                            })
+//                                        })
+//                                    })
+//
+//                            })
+//                    })
+//                })
+//                .map(|export_result| {
+//
+//                })
+//        })
 //    let sheet = ffxiv.get_sheet(
 //        &String::from("bgm"),
 //        SheetLanguage::English,
