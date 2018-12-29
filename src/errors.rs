@@ -10,7 +10,7 @@ pub enum AzureError {
     UnableToCreateSaveFile,
     UnableToReadCompareFile,
     ErrorWritingSaveFile,
-    ErrorExporting,
+    ErrorExporting(&'static str),
     ErrorDecoding
 }
 
@@ -27,7 +27,7 @@ impl std::fmt::Display for AzureError {
             UnableToCreateSaveFile => write!(f, "The save file was unable to be created anew."),
             UnableToReadCompareFile => write!(f, "The compare file was unable to be read or parsed."),
             ErrorWritingSaveFile => write!(f, "There was an error writing to the save file."),
-            ErrorExporting => write!(f, "An error occurred during the export process"),
+            ErrorExporting(s) => write!(f, "An error occurred during the export process. Reason: {}", s),
             ErrorDecoding => write!(f, "An error occurred while attempting to decode the SCD/OggVorbis Samples"),
         }
     }

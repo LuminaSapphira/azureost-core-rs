@@ -1,22 +1,18 @@
 
 use std::collections::HashMap;
-use std::error::Error;
-use std::panic::catch_unwind;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::Receiver;
 
 use ::sqpack_blue::{FFXIV, ExFileIdentifier, Index};
 use ::threadpool::ThreadPool;
-
-use ::errors::AzureError;
 use ::sqpack_blue::FFXIVError;
 
 pub enum ThreadStatus<T> {
     Continue(T),
     Complete,
     Skip,
-    Error(String),
+    Error(String, usize),
 }
 
 fn get_index_from_map_or_insert<'a>(map: &'a mut HashMap<String, Index>, exf: &ExFileIdentifier, ffxiv: &FFXIV) -> Result<&'a Index, FFXIVError> {
@@ -24,13 +20,16 @@ fn get_index_from_map_or_insert<'a>(map: &'a mut HashMap<String, Index>, exf: &E
         .or_insert(ffxiv.get_index(exf)?))
 }
 
-pub fn async_processor<O: 'static>(thread_count: usize,
+pub fn async_processor<O: 'static, F: 'static>(thread_count: usize,
                                       ffxiv: FFXIV,
                                       work: &Vec<(usize, ExFileIdentifier)>,
-                                      f: fn(usize, Vec<u8>) -> ThreadStatus<O>)
+                                      handler: F)
     -> Receiver<ThreadStatus<O>>
-    where O: Send
+    where O: Send,
+F: Fn(usize, Vec<u8>) -> ThreadStatus<O> + Send + Sync
 {
+
+    let data_handler = Arc::new(handler);
 
     let (tx, rx) = mpsc::channel();
 
@@ -41,6 +40,7 @@ pub fn async_processor<O: 'static>(thread_count: usize,
     distributed_work.into_iter().for_each(|each_work| {
         let tx_n = tx.clone();
         let ffxiv = ffxiv.clone();
+        let data_handler = data_handler.clone();
         pool.execute(move || {
             let mut ff_index_files = HashMap::new();
             each_work.into_iter().for_each(|(index, exf)| {
@@ -49,10 +49,10 @@ pub fn async_processor<O: 'static>(thread_count: usize,
                         ffxiv.get_raw_data_with_index(&exf, ff_index)
                     })
                     .and_then(|data| {
-                        Ok(tx_n.send(f(index, data)).ok())
+                        Ok(tx_n.send(data_handler(index, data)).ok())
                     })
                     .unwrap_or_else(|e| {
-                        tx_n.send(ThreadStatus::Error(e.to_string())).ok()
+                        tx_n.send(ThreadStatus::Error(e.to_string(), index)).ok()
                     });
             });
         });

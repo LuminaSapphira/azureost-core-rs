@@ -43,15 +43,15 @@ impl BGMOptions {
                compare_file: Option<PathBuf>,
                export_mode: Option<ExportMode>) -> Result<BGMOptions, AzureError> {
         save_file.map_or(Ok(None), |f_str| {
-            OpenOptions::new().write(true).create_new(true).open(f_str).map_err(|err| {
+            OpenOptions::new().write(true).create_new(true).open(f_str).map_err(|_| {
                 AzureError::UnableToCreateSaveFile
             }).map(|f| Some(f))
         }).and_then(|save_file| {
             compare_file.map_or(Ok(None), |f_str| {
-                OpenOptions::new().read(true).open(f_str).map_err(|err| {
+                OpenOptions::new().read(true).open(f_str).map_err(|_| {
                     AzureError::UnableToReadCompareFile
                 }).and_then(|compare_file| {
-                    ::serde_json::from_reader::<File, manifest::ManifestFile>(compare_file).map_err(|err| {
+                    ::serde_json::from_reader::<File, manifest::ManifestFile>(compare_file).map_err(|_| {
                         AzureError::UnableToReadCompareFile
                     })
                 }).map(|mf| Some(mf))
@@ -84,6 +84,7 @@ pub fn bgm_csv() {
 
 }
 
+#[derive(Debug)]
 pub enum AzureProcessPhase {
     Begin,
     ReadingBGMSheet,
@@ -114,6 +115,7 @@ pub struct AzureProcessProgress {
 
 pub struct AzureProcessNonfatalError {
     current_operation: usize,
+    reason: String,
 }
 
 pub struct AzureProcessComplete {
@@ -122,20 +124,56 @@ pub struct AzureProcessComplete {
 }
 
 pub trait AzureCallbacks {
-    fn pre_phase(phase: AzureProcessPhase);
-    fn post_phase(phase: AzureProcessPhase);
+    fn pre_phase(&self, phase: AzureProcessPhase);
+    fn post_phase(&self, phase: AzureProcessPhase);
 
-    fn process_begin(info: AzureProcessBegin);
-    fn process_progress(info: AzureProcessProgress);
-    fn process_nonfatal_error(info: AzureProcessNonfatalError);
-    fn process_complete(info: AzureProcessComplete);
-
+    fn process_begin(&self, info: AzureProcessBegin);
+    fn process_progress(&self, info: AzureProcessProgress);
+    fn process_nonfatal_error(&self, info: AzureProcessNonfatalError);
+    fn process_complete(&self, info: AzureProcessComplete);
 }
 
 #[cfg(test)]
 mod tests {
+
+
+    struct MyCB;
+    use ::*;
+    impl ::AzureCallbacks for MyCB {
+        fn pre_phase(&self, phase: AzureProcessPhase) {
+            println!("{:?}", phase);
+        }
+        fn post_phase(&self, phase: AzureProcessPhase) {
+            println!("{:?}", phase);
+        }
+
+        fn process_begin(&self, info: AzureProcessBegin) {
+
+        }
+        fn process_progress(&self, info: AzureProcessProgress) {
+
+        }
+        fn process_nonfatal_error(&self, info: AzureProcessNonfatalError) {
+
+        }
+        fn process_complete(&self, info: AzureProcessComplete) {
+
+        }
+    }
+
     #[test]
     fn it_works() {
-        assert_eq!(2 + 2, 4);
+
+        use std::path::PathBuf;
+        let ffpath = PathBuf::from("C:\\Program Files (x86)\\SquareEnix\\FINAL FANTASY XIV - A Realm Reborn\\game\\sqpack");
+        let save_file = PathBuf::from("save.json");
+        let export_path = PathBuf::from("output");
+        let bgmopts = ::BGMOptions::new(None, None, Some(::ExportMode::OGG(export_path)));
+
+
+
+        super::process_all(::AzureOptions::new(ffpath, 4usize).unwrap(), bgmopts.unwrap(), &MyCB{}).unwrap();
+
+
     }
 }

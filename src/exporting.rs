@@ -1,5 +1,6 @@
-use std::path::PathBuf;
-use std::fs::{OpenOptions, File};
+use std::path::{Path, PathBuf};
+use std::fs::{DirBuilder, OpenOptions};
+use std::io::Write;
 use ::errors::AzureError;
 
 #[cfg(feature = "lamemp3")]
@@ -8,13 +9,19 @@ extern crate lame;
 extern crate vorbis;
 extern crate lewton;
 
-use self::vorbis::{Decoder, Encoder, VorbisQuality, VorbisError};
+use self::vorbis::{Encoder, VorbisQuality};
 use self::lewton::inside_ogg::OggStreamReader;
 
+#[derive(Clone)]
 pub enum ExportMode {
     #[cfg(feature="lamemp3")]
     MP3(PathBuf),
     OGG(PathBuf),
+}
+
+#[inline]
+fn get_looped_len(interleaved_len: usize, loop_info: &LoopInfo, num_channels: usize) -> usize {
+    interleaved_len + (loop_info.end - loop_info.start) * num_channels
 }
 
 impl ExportMode {
@@ -27,25 +34,132 @@ impl ExportMode {
     }
 
     #[cfg(feature="lamemp3")]
-    fn export_mp3(&self, file_name: &str, data: Vec<u8>) -> Result<(), AzureError> {
-        use self::lame::{Lame, EncodeError};
-        unimplemented!();
+    fn export_mp3(&self, file_name: &str, data: Vec<i16>, sample_rate: u64) -> Result<(), AzureError> {
+        use self::lame::Lame;
+
+        let mut lame = Lame::new().unwrap();
+        // TODO allow changing quality
+        lame.set_quality(3).unwrap();
+        lame.set_channels(2).unwrap();
+        lame.set_sample_rate(sample_rate as u32).unwrap();
+        lame.set_kilobitrate(128).unwrap();
+        lame.init_params().unwrap();
+        let mut out = vec![0u8; (5 * data.len()) / 4 + 7200];
+        let (left, right): (Vec<(usize, i16)>, Vec<(usize, i16)>) = data
+            .into_iter()
+            .enumerate()
+            .partition(|s| s.0 % 2 == 0);
+        let left = left.into_iter().map(|a| a.1).collect::<Vec<i16>>();
+        let right = right.into_iter().map(|a| a.1).collect::<Vec<i16>>();
+        let output = lame.encode(&left, &right, &mut out).unwrap();
+        let out = out.into_iter().take(output).collect::<Vec<u8>>();
+
+        let path = Path::new(self.get_path()).join(Path::new(file_name).with_extension("mp3"));
+        OpenOptions::new().create(true).write(true).open(path)
+            .and_then(|mut file| {
+                file.write_all(&out)
+            })
+            .map_err(|_| AzureError::ErrorExporting("Writing file"))
+
+
     }
 
-    pub fn export_file(&self, file_name: &str, data: Vec<u8>) -> Result<(), AzureError> {
+    fn export_ogg(&self, file_name: &str, data: Vec<i16>, sample_rate: u64) -> Result<(), AzureError> {
+        // TODO allow changing quality
+        Encoder::new(2, sample_rate, VorbisQuality::Midium)
+            .map_err(|_| AzureError::ErrorExporting("Creating Vorbis encoder"))
+            .and_then(|mut encoder| {
+                encoder.encode(&data)
+                    .map_err(|_| AzureError::ErrorExporting("Encoding vorbis"))
+                    .and_then(|out| {
+                        let path = Path::new(self.get_path()).join(Path::new(file_name).with_extension("ogg"));
+                        path.parent()
+                            .map(|parent| {
+                                DirBuilder::new().recursive(true).create(parent)
+                                    .map_err(|_| AzureError::ErrorExporting("Creating directory for output"))
+                            })
+                            .unwrap_or(Ok(()))
+                            .and_then(|_| {
+                                OpenOptions::new().create(true).write(true).truncate(true).open(path)
+                                    .and_then(|mut file| {
+                                        file.write_all(&out)
+                                    })
+                                    .map_err(|_| AzureError::ErrorExporting("Writing File"))
+                            })
+                    })
+            })
+    }
+
+    pub fn export_file(&self, base_path: &str, scd_entry_index: usize, scd_entry_count: usize, data: Vec<u8>) -> Result<(), AzureError> {
         decode_ogg(data)
             .and_then(|decoded| {
-                /*
-                TODO process file
-                1. Interleave
-                2. Loop
-                3. Fade
-                */
+
+                // needs to have at least 2 channels
+                if decoded.channels < 2 {
+                    return Err(AzureError::ErrorExporting("Needs at least 2 channels"))
+                }
+
+                // needs to be on L/R channels
+                if decoded.channels % 2 != 0 {
+                    return Err(AzureError::ErrorExporting("needs to be Left/Right channels"))
+                }
+
+                let layer_count = decoded.channels / 2;
+
+                let mut layer_index = 0usize;
+
+                let mut in_samples = decoded.samples;
+                for _ in (0..decoded.channels).step_by(2) {
+                    let r_c = in_samples.pop().unwrap();
+                    let l_c = in_samples.pop().unwrap();
+                    let lr_channels = vec![l_c, r_c];
+                    let mut interleaved = interleave(lr_channels);
+
+                    let mut samples = if decoded.loop_info.is_some() {
+                        let info = decoded.loop_info.unwrap();
+                        let mut final_samples = Vec::with_capacity(get_looped_len(interleaved.len(), &info, decoded.channels));
+                        final_samples.extend(interleaved.drain(0..info.start * decoded.channels));
+                        final_samples.extend(interleaved.iter().cloned().take((info.end - info.start) * decoded.channels));
+                        final_samples.extend(interleaved.drain(0..(info.end - info.start) * decoded.channels));
+                        final_samples.extend(interleaved);
+                        final_samples
+                    } else {
+                        interleaved
+                    };
+                    fade(&mut samples, decoded.rate, decoded.channels);
+
+                    let mut base_path = String::from(base_path);
+                    let bp_len = base_path.len();
+                    base_path.truncate(bp_len - 4);
+                    let format_str = if layer_count == 1 {
+                        if scd_entry_count == 1 {
+                            format!("{}", base_path)
+                        } else {
+                            format!("{}_entry{}", base_path, scd_entry_index)
+                        }
+                    } else {
+                        if scd_entry_count == 1 {
+                            format!("{}_layer{}", base_path, layer_index)
+                        } else {
+                            format!("{}_entry{}_layer{}", base_path, scd_entry_index, layer_index)
+                        }
+                    };
+
+
+
+                    match self {
+                        #[cfg(feature="lamemp3")]
+                        ExportMode::MP3(_) => self.export_mp3(format_str.as_str(), samples, decoded.rate)?,
+                        ExportMode::OGG(_) => self.export_ogg(format_str.as_str(), samples, decoded.rate)?,
+                    };
+                    layer_index += 1;
+                };
+                Ok(())
             })
-        unimplemented!();
     }
 }
 
+#[derive(Copy, Clone)]
 struct LoopInfo {
     pub start: usize,
     pub end: usize,
@@ -91,12 +205,12 @@ fn extract_loop_info(comments: Vec<(String, String)>) -> Option<LoopInfo> {
 fn decode_ogg(scd_ogg: Vec<u8>) -> Result<DecodedOgg, AzureError> {
     use std::io::Cursor;
     OggStreamReader::new(Cursor::new(scd_ogg))
-        .map_err(|o| AzureError::ErrorDecoding)
+        .map_err(|_| AzureError::ErrorDecoding)
         .and_then(|mut osr| {
             let mut samples = vec![Vec::<i16>::new(); osr.ident_hdr.audio_channels as usize];
             let mut has_samples: bool = true;
              while has_samples {
-                 let packet = osr.read_dec_packet().map_err(|o|AzureError::ErrorDecoding)?;
+                 let packet = osr.read_dec_packet().map_err(|_|AzureError::ErrorDecoding)?;
                  if packet.is_some() {
                      let vecs = packet.unwrap();
                      for (i, pkt_samples) in vecs.into_iter().enumerate() {

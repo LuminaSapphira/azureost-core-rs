@@ -1,4 +1,4 @@
-use ::sha1::{Sha1, Digest};
+use ::sha1::Digest;
 use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -17,6 +17,7 @@ pub struct TrackManifest {
 #[cfg(test)]
 mod manifest_tests {
     use super::*;
+    use ::sha1::Sha1;
     #[test]
     fn basic_manifest() {
 

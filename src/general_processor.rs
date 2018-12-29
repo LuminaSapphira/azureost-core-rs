@@ -1,14 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
 use std::fs::DirBuilder;
 
-use ::{ExportMode, BGMOptions, AzureOptions, AzureCallbacks};
+use ::{BGMOptions, AzureOptions, AzureCallbacks};
 use ::errors::AzureError;
 use ::async_data_processor::{ThreadStatus, async_processor};
-use ::sqpack_blue::{FFXIV, ExFileIdentifier, FFXIVError};
+use ::sqpack_blue::{ExFileIdentifier, FFXIVError};
 use ::sqpack_blue::sheet::ex::SheetLanguage;
-use ::sqpack_blue::sheet::SheetRow;
-use ::sha1::{Sha1, Digest};
+use ::sha1::Sha1;
 use ::manifest::*;
 
 fn is_known_skip(skip: &str) -> bool {
@@ -20,24 +18,21 @@ fn is_known_skip(skip: &str) -> bool {
     }
 }
 
-struct EXFCollection {
-    pub collected: Vec<TrackManifest>,
-    pub uncollected: Vec<TrackManifest>,
-}
-
 //fn get_sheet_index(ffxiv: FFXIV) ->
 
 pub fn process<AC>(azure_opts: AzureOptions,
                bgm_opts: BGMOptions,
                process_indicies: Vec<usize>,
                callbacks: &AC) -> Result<(), AzureError>
-    where AC: AzureCallbacks + Sized{
+    where AC: AzureCallbacks + Sized {
 
-//    convert(process_indicies.into_iter()).
+    callbacks.pre_phase(::AzureProcessPhase::Begin);
+    callbacks.post_phase(::AzureProcessPhase::Begin);
 
     Ok(azure_opts.ffxiv.clone())
         // get the Sheet index
         .and_then(|ffxiv| {
+            callbacks.pre_phase(::AzureProcessPhase::ReadingBGMSheet);
             ffxiv.get_sheet_index().map_err(|e| e.into())
                 .map(|a| (ffxiv, a))
         })
@@ -70,7 +65,7 @@ pub fn process<AC>(azure_opts: AzureOptions,
                         .filter(|s| {
                             match s {
                                 Ok(s) => !is_known_skip(s.1.as_str()),
-                                Err(e) => true
+                                Err(_) => true
                             }
                         })
                         .map(|s| {
@@ -82,6 +77,9 @@ pub fn process<AC>(azure_opts: AzureOptions,
                 //.partition::<Vec<Result<(usize, ExFileIdentifier), FFXIVError>>, Vec<_>>(|e| {Result::is_ok});
                 let exfiles = exfiles.into_iter().map(|k| k.unwrap()).collect::<Vec<_>>();
                 let errors = errors.into_iter().map(|k| k.err().unwrap()).collect::<Vec<_>>();
+
+                callbacks.post_phase(::AzureProcessPhase::ReadingBGMSheet);
+
                 if !errors.is_empty() {
                     Err(AzureError::FFXIVErrorVec(errors))
                 } else {
@@ -91,8 +89,12 @@ pub fn process<AC>(azure_opts: AzureOptions,
         })
         // hash the exfile SCDs
         .and_then(|(ffxiv, exfiles)| {
+            callbacks.pre_phase(::AzureProcessPhase::Hashing);
             let hashes =
                 if bgm_opts.compare_file.is_some() || bgm_opts.save_file.is_some() {
+                    callbacks.process_begin(::AzureProcessBegin {
+                        total_operations_count: exfiles.len()
+                    });
                     let recv = async_processor(
                         azure_opts.thread_count,
                         ffxiv.clone(),
@@ -103,37 +105,50 @@ pub fn process<AC>(azure_opts: AzureOptions,
                     let mut hashes = HashMap::new();
                     let mut threads_completed = 0usize;
                     let mut files_completed = 0usize;
+                    let mut files_errored = 0usize;
                     'thread_recv: for received in recv {
                         match received {
                             ThreadStatus::Continue((index, digest)) => {
                                 hashes.insert(index, digest);
                                 files_completed += 1;
-                                // todo call continue func
-                            }
+                                callbacks.process_progress(::AzureProcessProgress {
+                                    total_operations_count: exfiles.len(),
+                                    is_skip: false,
+                                    current_operation: index,
+                                    operations_progress: files_completed
+                                })
+                            },
                             ThreadStatus::Complete => {
                                 threads_completed += 1;
                                 if threads_completed == azure_opts.thread_count {
                                     break 'thread_recv;
                                 }
-                            }
+                                callbacks.process_complete(::AzureProcessComplete {
+                                    operations_completed: files_completed,
+                                    operations_errored: files_errored
+                                })
+                            },
                             ThreadStatus::Skip => {
                                 files_completed += 1;
                                 // todo call skip func
-                            }
-                            ThreadStatus::Error(_) => {
+                            },
+                            ThreadStatus::Error(_, _) => {
                                 files_completed += 1;
+                                files_errored += 1;
                                 // todo call error func
-                            }
+                            },
                         }
                     }
                     Some(hashes)
                 } else {
                     None
                 };
+            callbacks.post_phase(::AzureProcessPhase::Hashing);
             Ok((ffxiv, exfiles, hashes))
         })
         // partition exfiles into collected and uncollected
         .and_then(|(ffxiv, exfiles, hashes)| {
+            callbacks.pre_phase(::AzureProcessPhase::Collecting);
             let collects: (Vec<TrackManifest>, Vec<TrackManifest>) =
                 exfiles.into_iter()
                     .map(|(index, exf)| {
@@ -153,11 +168,13 @@ pub fn process<AC>(azure_opts: AzureOptions,
                                     .unwrap_or(true)
                             }).unwrap_or(true)
                     });
+            callbacks.post_phase(::AzureProcessPhase::Collecting);
             Ok((ffxiv, collects))
         })
         // save manifest file
         .and_then(|(ffxiv,
                        (collects, uncollects))| {
+            callbacks.pre_phase(::AzureProcessPhase::SavingManifest);
             bgm_opts.save_file.as_ref()
                 .and_then(|save_file| {
                     Some(::serde_json::to_writer_pretty(save_file,
@@ -173,38 +190,100 @@ pub fn process<AC>(azure_opts: AzureOptions,
                 .unwrap_or(Ok(()))
                 .map(|_| (ffxiv, collects, uncollects))
         })
-        .map(|_| ())
-//        .and_then(|(ffxiv, collects, uncollects)| {
-//            bgm_opts.export_mode.as_ref()
-//                .and_then(|export_mode| {
-//                    Some({
-//                        DirBuilder::new()
-//                            .recursive(true)
-//                            .create(export_mode.get_path())
-//                            .and_then(|_| {
-//                                collects.iter().map(|t_mf| {
-//                                    ffxiv.get_exfile(&t_mf.name)
-//                                        .map(|exf| (t_mf.index, exf))
-//                                }).collect::<Result<Vec<_>, _>>()
-//                                    .and_then(|work| {
-//                                        let index_name_map = work
-//                                            .iter().map(|(index, exf)| (index, exf.get_exfile_string().clone()))
-//                                            .collect::<HashMap<usize, String>>();
-//                                        async_processor(azure_opts.thread_count, ffxiv.clone(), &work, |index, data| {
-//                                            index_name_map.get(&index).map_or(ThreadStatus::Error(format!("Invalid index passed to exporter! Index: {}", index)), |f_name| {
-//                                                let a: Vec<&str> = f_name.split("/").skip(1).collect();
-//                                                export_mode.export_file(a.join("/"), collect);
-//                                            })
-//                                        })
-//                                    })
-//
-//                            })
-//                    })
-//                })
+//        .map(|_| ())
+        .and_then(|(ffxiv, collects, _uncollects)| {
+            callbacks.post_phase(::AzureProcessPhase::SavingManifest);
+            callbacks.pre_phase(::AzureProcessPhase::Exporting);
+            let export_result = bgm_opts.export_mode.clone()
+                .and_then(|export_mode| {
+                    Some({
+                        DirBuilder::new()
+                            .recursive(true)
+                            .create(export_mode.get_path())
+                            .map_err(|_| AzureError::ErrorExporting("Creating directory"))
+                            .and_then(|_| {
+                                collects.iter().map(|t_mf| {
+                                    ffxiv.get_exfile(&t_mf.name)
+                                        .map(|exf| (t_mf.index, exf))
+                                }).collect::<Result<Vec<_>, _>>()
+                                    .and_then(|work| {
+                                        let index_name_map = work
+                                            .iter().map(|(index, exf)| (*index, exf.get_exfile_string().clone()))
+                                            .collect::<HashMap<usize, String>>();
+                                        let recv = async_processor(azure_opts.thread_count, ffxiv.clone(), &work, move |index, data| {
+                                            index_name_map.get(&index).map_or(ThreadStatus::Error(format!("Invalid index passed to exporter! Index: {}", index), index), |f_name| {
+                                                let a: Vec<&str> = f_name.split("/").skip(1).collect();
+                                                ffxiv.decode_sound(data)
+                                                    .map_err(|_| AzureError::ErrorDecoding)
+                                                    .and_then(|scd| {
+                                                        let entry_count = scd.header.entry_count as usize;
+                                                        let base_path = a.join("/");
+                                                        scd.entries.into_iter()
+                                                            .rev()
+                                                            .enumerate()
+                                                            .map(|(index, entry)| {
+                                                                let mut decoded_ogg = Vec::new();
+                                                                decoded_ogg.clone_from(entry.decoded());
+                                                                export_mode.export_file(base_path.as_str(), index, entry_count, decoded_ogg)
+                                                            })
+                                                            .collect::<Result<(), AzureError>>()
+                                                            .map(|_| ThreadStatus::Continue(index))
+                                                    })
+                                                    .unwrap_or_else(|err| ThreadStatus::Error(format!("Failed to decode SCD: {}, reason: {:?}", f_name, err), index))
+                                            })
+                                        });
+                                        let mut threads_completed = 0usize;
+                                        let mut files_completed = 0usize;
+                                        let mut files_errored = 0usize;
+                                        'thread_recv: for received in recv {
+                                            match received {
+                                                ThreadStatus::Continue(index) => {
+                                                    files_completed += 1;
+                                                    callbacks.process_progress(::AzureProcessProgress {
+                                                        total_operations_count: work.len(),
+                                                        is_skip: false,
+                                                        current_operation: index,
+                                                        operations_progress: files_completed
+                                                    })
+                                                },
+                                                ThreadStatus::Complete => {
+                                                    threads_completed += 1;
+                                                    if threads_completed == azure_opts.thread_count {
+                                                        break 'thread_recv;
+                                                    }
+                                                    callbacks.process_complete(::AzureProcessComplete {
+                                                        operations_completed: files_completed,
+                                                        operations_errored: files_errored
+                                                    })
+                                                },
+                                                ThreadStatus::Skip => {
+                                                    files_completed += 1;
+                                                    // todo call skip func
+                                                },
+                                                ThreadStatus::Error(reason, index) => {
+                                                    files_completed += 1;
+                                                    files_errored += 1;
+                                                    callbacks.process_nonfatal_error(::AzureProcessNonfatalError {
+                                                        current_operation: index,
+                                                        reason: String::from(reason)
+                                                    });
+                                                },
+                                            } }
+                                        Ok(())
+                                    })
+                                    .map_err(|o| AzureError::FFXIVError(o))
+
+                            })
+
+                    })
+                })
+                .unwrap_or(Ok(()));
+            callbacks.post_phase(::AzureProcessPhase::Exporting);
+            export_result
 //                .map(|export_result| {
 //
 //                })
-//        })
+        })
 //    let sheet = ffxiv.get_sheet(
 //        &String::from("bgm"),
 //        SheetLanguage::English,
