@@ -55,11 +55,19 @@ impl ExportMode {
         let out = out.into_iter().take(output).collect::<Vec<u8>>();
 
         let path = Path::new(self.get_path()).join(Path::new(file_name).with_extension("mp3"));
-        OpenOptions::new().create(true).write(true).open(path)
-            .and_then(|mut file| {
-                file.write_all(&out)
+        path.parent()
+            .map(|parent| {
+                DirBuilder::new().recursive(true).create(parent)
+                    .map_err(|_| AzureError::ErrorExporting("Creating directory for output"))
             })
-            .map_err(|_| AzureError::ErrorExporting("Writing file"))
+            .unwrap_or(Ok(()))
+            .and_then(|_| {
+                OpenOptions::new().create(true).write(true).truncate(true).open(path)
+                    .and_then(|mut file| {
+                        file.write_all(&out)
+                    })
+                    .map_err(|_| AzureError::ErrorExporting("Writing File"))
+            })
 
 
     }
