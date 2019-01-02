@@ -3,6 +3,9 @@ use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManifestFile {
+    // A binary tree map is used in favor of a HashMap to preserve ordering.
+    // This is purely aesthetic, and only serves to output prettier manifest files.
+    // TODO: provide feature to use HashMap for slight improvement in speed
     pub files: BTreeMap<usize, TrackManifest>,
 }
 
@@ -11,7 +14,6 @@ pub struct TrackManifest {
     pub index: usize,
     pub name: String,
     pub sha1: Digest,
-
 }
 
 #[cfg(test)]

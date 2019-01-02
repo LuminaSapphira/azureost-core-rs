@@ -1,11 +1,17 @@
 use ::{BGMOptions, AzureOptions, AzureError, AzureCallbacks};
 use ::sqpack_blue::sheet::ex::SheetLanguage;
 use std::iter::FromIterator;
+use ::selector::Selector;
 
-pub fn process_all<AC>(azure_opts: AzureOptions, bgm_opts: BGMOptions, ac: &AC) -> Result<(), AzureError>
-    where AC: AzureCallbacks + Sized
-    {
-
+/// Process all files in the BGM sheet using the provided AzureOptions and BGMOptions. Callbacks are
+/// made synchronously to the provided AzureCallbacks reference.
+/// # Arguments
+/// * `azure_opts` - The general options to use
+/// * `bgm_opts` - The BGM options to use
+/// * `callbacks` - A reference to an AzureCallbacks implementation. If no specific callback
+/// functionality is desired `azure_ost_core::callbacks::NoOpCallback` may be used.
+pub fn process_all(azure_opts: AzureOptions, bgm_opts: BGMOptions, callbacks: &AzureCallbacks) -> Result<(), AzureError>
+{
     let ffxiv = azure_opts.ffxiv.clone();
 
     Ok(ffxiv)
@@ -22,7 +28,29 @@ pub fn process_all<AC>(azure_opts: AzureOptions, bgm_opts: BGMOptions, ac: &AC) 
                 .map(|a| (ffxiv, a))
         })
         .and_then(|(_, sheet)| {
-            ::general_processor::process(azure_opts, bgm_opts, Vec::from_iter(2..sheet.rows.len()), ac)
+            ::general_processor::process(azure_opts, bgm_opts, Vec::from_iter(0..sheet.rows.len()), callbacks)
         })
+}
 
+/// Process all files in the BGM sheet using the provided AzureOptions and BGMOptions. Callbacks are
+/// made synchronously to the provided AzureCallbacks reference.
+/// # Arguments
+/// * `selected` - A reference to a type that implements `azure_ost_core::selector::Selector`. This
+/// specifies which row from the BGM sheet should be operated upon.
+/// * `azure_opts` - The general options to use
+/// * `bgm_opts` - The BGM options to use
+/// * `callbacks` - A reference to an AzureCallbacks implementation. If no specific callback
+/// functionality is desired `azure_ost_core::callbacks::NoOpCallback` may be used.
+pub fn process_one(selected: &Selector, azure_opts: AzureOptions,
+                       bgm_opts: BGMOptions, ac: &AzureCallbacks) -> Result<(), AzureError> {
+    let ffxiv = azure_opts.ffxiv.clone();
+
+    Ok(ffxiv)
+        // get the Sheet index
+        .and_then(|ffxiv| {
+            selected.select_azure_ost(&ffxiv)
+        })
+        .and_then(|index| {
+            ::general_processor::process(azure_opts, bgm_opts, vec![index], ac)
+        })
 }

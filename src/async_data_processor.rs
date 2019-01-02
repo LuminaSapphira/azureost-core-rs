@@ -11,7 +11,6 @@ use ::sqpack_blue::FFXIVError;
 pub enum ThreadStatus<T> {
     Continue(T),
     Complete,
-    Skip,
     Error(String, usize),
 }
 
@@ -55,6 +54,7 @@ F: Fn(usize, Vec<u8>) -> ThreadStatus<O> + Send + Sync
                         tx_n.send(ThreadStatus::Error(e.to_string(), index)).ok()
                     });
             });
+            tx_n.send(ThreadStatus::Complete).ok();
         });
     });
 

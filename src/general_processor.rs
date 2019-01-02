@@ -1,38 +1,39 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs::DirBuilder;
 
-use ::{BGMOptions, AzureOptions, AzureCallbacks};
+use ::{BGMOptions, AzureOptions};
 use ::errors::AzureError;
 use ::async_data_processor::{ThreadStatus, async_processor};
 use ::sqpack_blue::{ExFileIdentifier, FFXIVError};
 use ::sqpack_blue::sheet::ex::SheetLanguage;
 use ::sha1::Sha1;
 use ::manifest::*;
+use ::callbacks::*;
 
 fn is_known_skip(skip: &str) -> bool {
     match skip {
         "music/ffxiv/BGM_Season_China01.scd" => true,
         "music/ffxiv/BGM_Event_OP01.scd" => true,
         "music/ffxiv/BGM_Leves_Lim_01.scd" => true,
+        "" => true,
+        "music/ffxiv/BGM_Null.scd" => true,
         _ => false,
     }
 }
 
 //fn get_sheet_index(ffxiv: FFXIV) ->
-
-pub fn process<AC>(azure_opts: AzureOptions,
+pub fn process(azure_opts: AzureOptions,
                bgm_opts: BGMOptions,
                process_indicies: Vec<usize>,
-               callbacks: &AC) -> Result<(), AzureError>
-    where AC: AzureCallbacks + Sized {
+               callbacks: &AzureCallbacks) -> Result<(), AzureError> {
 
-    callbacks.pre_phase(::AzureProcessPhase::Begin);
-    callbacks.post_phase(::AzureProcessPhase::Begin);
+    callbacks.pre_phase(AzureProcessPhase::Begin);
+    callbacks.post_phase(AzureProcessPhase::Begin);
 
     Ok(azure_opts.ffxiv.clone())
         // get the Sheet index
         .and_then(|ffxiv| {
-            callbacks.pre_phase(::AzureProcessPhase::ReadingBGMSheet);
+            callbacks.pre_phase(AzureProcessPhase::ReadingBGMSheet);
             ffxiv.get_sheet_index().map_err(|e| e.into())
                 .map(|a| (ffxiv, a))
         })
@@ -78,7 +79,7 @@ pub fn process<AC>(azure_opts: AzureOptions,
                 let exfiles = exfiles.into_iter().map(|k| k.unwrap()).collect::<Vec<_>>();
                 let errors = errors.into_iter().map(|k| k.err().unwrap()).collect::<Vec<_>>();
 
-                callbacks.post_phase(::AzureProcessPhase::ReadingBGMSheet);
+                callbacks.post_phase(AzureProcessPhase::ReadingBGMSheet);
 
                 if !errors.is_empty() {
                     Err(AzureError::FFXIVErrorVec(errors))
@@ -89,10 +90,10 @@ pub fn process<AC>(azure_opts: AzureOptions,
         })
         // hash the exfile SCDs
         .and_then(|(ffxiv, exfiles)| {
-            callbacks.pre_phase(::AzureProcessPhase::Hashing);
             let hashes =
                 if bgm_opts.compare_file.is_some() || bgm_opts.save_file.is_some() {
-                    callbacks.process_begin(::AzureProcessBegin {
+                    callbacks.pre_phase(AzureProcessPhase::Hashing);
+                    callbacks.process_begin(AzureProcessBegin {
                         total_operations_count: exfiles.len()
                     });
                     let recv = async_processor(
@@ -111,7 +112,7 @@ pub fn process<AC>(azure_opts: AzureOptions,
                             ThreadStatus::Continue((index, digest)) => {
                                 hashes.insert(index, digest);
                                 files_completed += 1;
-                                callbacks.process_progress(::AzureProcessProgress {
+                                callbacks.process_progress(AzureProcessProgress {
                                     total_operations_count: exfiles.len(),
                                     is_skip: false,
                                     current_operation: index,
@@ -123,32 +124,34 @@ pub fn process<AC>(azure_opts: AzureOptions,
                                 if threads_completed == azure_opts.thread_count {
                                     break 'thread_recv;
                                 }
-                                callbacks.process_complete(::AzureProcessComplete {
+                                callbacks.process_complete(AzureProcessComplete {
                                     operations_completed: files_completed,
                                     operations_errored: files_errored
                                 })
                             },
-                            ThreadStatus::Skip => {
-                                files_completed += 1;
-                                // todo call skip func
-                            },
-                            ThreadStatus::Error(_, _) => {
+//                            ThreadStatus::Skip => {
+//                                files_completed += 1;
+//                            },
+                            ThreadStatus::Error(reason, current_operation) => {
                                 files_completed += 1;
                                 files_errored += 1;
-                                // todo call error func
+                                callbacks.process_nonfatal_error(AzureProcessNonfatalError {
+                                    reason, current_operation
+                                });
                             },
                         }
                     }
+                    callbacks.post_phase(AzureProcessPhase::Hashing);
                     Some(hashes)
                 } else {
                     None
                 };
-            callbacks.post_phase(::AzureProcessPhase::Hashing);
+
             Ok((ffxiv, exfiles, hashes))
         })
         // partition exfiles into collected and uncollected
         .and_then(|(ffxiv, exfiles, hashes)| {
-            callbacks.pre_phase(::AzureProcessPhase::Collecting);
+            callbacks.pre_phase(AzureProcessPhase::Collecting);
             let collects: (Vec<TrackManifest>, Vec<TrackManifest>) =
                 exfiles.into_iter()
                     .map(|(index, exf)| {
@@ -168,13 +171,13 @@ pub fn process<AC>(azure_opts: AzureOptions,
                                     .unwrap_or(true)
                             }).unwrap_or(true)
                     });
-            callbacks.post_phase(::AzureProcessPhase::Collecting);
+            callbacks.post_phase(AzureProcessPhase::Collecting);
             Ok((ffxiv, collects))
         })
         // save manifest file
         .and_then(|(ffxiv,
                        (collects, uncollects))| {
-            callbacks.pre_phase(::AzureProcessPhase::SavingManifest);
+            callbacks.pre_phase(AzureProcessPhase::SavingManifest);
             bgm_opts.save_file.as_ref()
                 .and_then(|save_file| {
                     Some(::serde_json::to_writer_pretty(save_file,
@@ -192,8 +195,8 @@ pub fn process<AC>(azure_opts: AzureOptions,
         })
 //        .map(|_| ())
         .and_then(|(ffxiv, collects, _uncollects)| {
-            callbacks.post_phase(::AzureProcessPhase::SavingManifest);
-            callbacks.pre_phase(::AzureProcessPhase::Exporting);
+            callbacks.post_phase(AzureProcessPhase::SavingManifest);
+            callbacks.pre_phase(AzureProcessPhase::Exporting);
             let export_result = bgm_opts.export_mode.clone()
                 .and_then(|export_mode| {
                     Some({
@@ -239,7 +242,7 @@ pub fn process<AC>(azure_opts: AzureOptions,
                                             match received {
                                                 ThreadStatus::Continue(index) => {
                                                     files_completed += 1;
-                                                    callbacks.process_progress(::AzureProcessProgress {
+                                                    callbacks.process_progress(AzureProcessProgress {
                                                         total_operations_count: work.len(),
                                                         is_skip: false,
                                                         current_operation: index,
@@ -251,21 +254,21 @@ pub fn process<AC>(azure_opts: AzureOptions,
                                                     if threads_completed == azure_opts.thread_count {
                                                         break 'thread_recv;
                                                     }
-                                                    callbacks.process_complete(::AzureProcessComplete {
+                                                    callbacks.process_complete(AzureProcessComplete {
                                                         operations_completed: files_completed,
                                                         operations_errored: files_errored
                                                     })
                                                 },
-                                                ThreadStatus::Skip => {
-                                                    files_completed += 1;
-                                                    // todo call skip func
-                                                },
-                                                ThreadStatus::Error(reason, index) => {
+//                                                ThreadStatus::Skip => {
+//                                                    files_completed += 1;
+//                                                    // todo call skip func
+//                                                },
+                                                ThreadStatus::Error(reason, current_operation) => {
                                                     files_completed += 1;
                                                     files_errored += 1;
-                                                    callbacks.process_nonfatal_error(::AzureProcessNonfatalError {
-                                                        current_operation: index,
-                                                        reason: String::from(reason)
+                                                    callbacks.process_nonfatal_error(AzureProcessNonfatalError {
+                                                        current_operation,
+                                                        reason
                                                     });
                                                 },
                                             } }
@@ -278,7 +281,7 @@ pub fn process<AC>(azure_opts: AzureOptions,
                     })
                 })
                 .unwrap_or(Ok(()));
-            callbacks.post_phase(::AzureProcessPhase::Exporting);
+            callbacks.post_phase(AzureProcessPhase::Exporting);
             export_result
 //                .map(|export_result| {
 //

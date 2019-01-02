@@ -17,28 +17,53 @@ mod general_processor;
 mod async_data_processor;
 mod exporting;
 
+
 pub mod errors;
 pub mod manifest;
+pub mod selector;
+pub mod callbacks;
 
-pub use process_all::process_all;
+pub use process_all::{process_one, process_all};
+pub use callbacks::AzureCallbacks;
+pub use exporting::ExportMode;
 
 use errors::AzureError;
 use sqpack_blue::FFXIV;
 
-pub use exporting::ExportMode;
-
+/// Holds options for controlling the processing of the BGM. This includes the manifest save file,
+/// the manifest file to compare against, and the export mode and path to use. Should be
+/// instantiated using its ::new() function, which validates its arguments and returns a result.
 pub struct BGMOptions {
     save_file: Option<File>,
     compare_file: Option<manifest::ManifestFile>,
     export_mode: Option<ExportMode>,
 }
 
+/// Holds data pertaining to the operation of the process, including the sqpack_blue FFXIV structure
+/// and the number of threads to use during expensive procedures. Should be instantiated using its
+/// ::new() function, which validates its arguments and returns a result.
+
+#[derive(Clone)]
 pub struct AzureOptions {
     ffxiv: FFXIV,
     thread_count: usize
 }
 
 impl BGMOptions {
+    /// Creates an instance of the struct BGMOptions or else returns an error.
+    ///
+    /// # Parameters:
+    /// * `save_file` - An Option referencing the location of the to be generated manifest file. This
+    /// should not already exist - for safety purposes this program will not truncate manifest files.
+    /// If you would like to skip the generation of a manifest, use the `None` variant here.
+    /// * `compare_file` - An Option referencing the location of an existing manifest file to compare
+    /// against. If you would like to skip comparisons and operate on all possible values, without
+    /// regard for changes, use the `None` variant here.
+    /// * `export_mode` - An Option referencing the **directory** to output decoded/encoded files to.
+    /// No checking is done here. If the directory does not exist it will be made during the export
+    /// process. If the directory does exist, the outputted files will be placed inside. If the path
+    /// conflicts with a file, errors will be thrown during the export process (but will not panic!.)
+    /// If you would like to skip exporting, use the `None` variant here.
     pub fn new(save_file: Option<PathBuf>,
                compare_file: Option<PathBuf>,
                export_mode: Option<ExportMode>) -> Result<BGMOptions, AzureError> {
@@ -67,6 +92,13 @@ impl BGMOptions {
 }
 
 impl AzureOptions {
+    /// Creates an instance of AzureOptions by validating the parameters and returning a result.
+    /// # Arguments
+    /// * `ffxiv_path` - a `PathBuf` referencing the sqpack directory inside an FFXIV installation.
+    /// **Note: internally, no checking is done to make sure the FFXIV directory is properly formatted
+    /// other than that it exists. If files are missing, there may be errors.**
+    /// * `thread_count` - the number of threads to use for expensive operations, such as hashing,
+    /// exporting, etc.
     pub fn new(ffxiv_path: PathBuf, thread_count: usize) -> Result<AzureOptions, AzureError> {
         Ok(ffxiv_path.as_path())
             .and_then(|ff| FFXIV::new(ff).ok_or(AzureError::NoFFXIV))
@@ -76,104 +108,39 @@ impl AzureOptions {
     }
 }
 
-pub fn export_one() {
+/// Writes FFXIV's BGM datasheet to a specified file
+/// # Arguments
+/// * `azure_opts` - `AzureOptions` structure created earlier
+/// * `output` - A `PathBuf` pointing to the file to output the CSV to. May or may not exist. If the
+/// file exists, it will be truncated.
+/// # Returns
+/// * **Ok Variant** - An empty tuple indicating success.
+/// * `Err(AzureError::UnableToCreateSaveFile)` - Indicates that the requested output file was
+/// unable to be opened for writing or created.
+/// * `Err(AzureError::FFXIVError)` - Indicates there was an error when parsing the BGM sheet internally.
+pub fn bgm_csv(azure_opts: AzureOptions, output: PathBuf) -> Result<(), AzureError> {
+    use sqpack_blue::sheet::write_csv;
+    OpenOptions::new().create(true).truncate(true).write(true).open(output)
+        .map_err(|_| AzureError::UnableToCreateSaveFile)
+        .and_then(|save_file| {
+            azure_opts.ffxiv.get_sheet_index().map_err(|o| AzureError::FFXIVError(o))
+                .map(|sheet_index| (save_file, sheet_index))
+        })
+        .and_then(|(save_file, sheet_index)| {
+            use ::sqpack_blue::sheet::ex::SheetLanguage;
+            azure_opts.ffxiv.get_sheet(&String::from("bgm"), SheetLanguage::None, &sheet_index)
+                .map_err(|o| AzureError::FFXIVError(o))
+                .map(|sheet| (save_file, sheet))
+        })
+        .and_then(|(mut save_file, sheet)| {
+            write_csv(&sheet, &mut save_file).map_err(|o| AzureError::FFXIVError(o))
+        })
 
-}
-
-pub fn bgm_csv() {
-
-}
-
-#[derive(Debug)]
-pub enum AzureProcessPhase {
-    Begin,
-    ReadingBGMSheet,
-    Hashing,
-    Collecting,
-    SavingManifest,
-    Exporting,
-}
-
-//pub enum ProcessResult
-//
-pub enum AzureProcessStatus {
-    Start,
-    Continue,
-    Completed,
-}
-
-pub struct AzureProcessBegin {
-    total_operations_count: usize,
-}
-
-pub struct AzureProcessProgress {
-    total_operations_count: usize,
-    operations_progress: usize,
-    current_operation: usize,
-    is_skip: bool,
-}
-
-pub struct AzureProcessNonfatalError {
-    current_operation: usize,
-    reason: String,
-}
-
-pub struct AzureProcessComplete {
-    operations_completed: usize,
-    operations_errored: usize,
-}
-
-pub trait AzureCallbacks {
-    fn pre_phase(&self, phase: AzureProcessPhase);
-    fn post_phase(&self, phase: AzureProcessPhase);
-
-    fn process_begin(&self, info: AzureProcessBegin);
-    fn process_progress(&self, info: AzureProcessProgress);
-    fn process_nonfatal_error(&self, info: AzureProcessNonfatalError);
-    fn process_complete(&self, info: AzureProcessComplete);
 }
 
 #[cfg(test)]
 mod tests {
 
 
-    struct MyCB;
-    use ::*;
-    impl ::AzureCallbacks for MyCB {
-        fn pre_phase(&self, phase: AzureProcessPhase) {
-            println!("{:?}", phase);
-        }
-        fn post_phase(&self, phase: AzureProcessPhase) {
-            println!("{:?}", phase);
-        }
 
-        fn process_begin(&self, info: AzureProcessBegin) {
-
-        }
-        fn process_progress(&self, info: AzureProcessProgress) {
-
-        }
-        fn process_nonfatal_error(&self, info: AzureProcessNonfatalError) {
-
-        }
-        fn process_complete(&self, info: AzureProcessComplete) {
-
-        }
-    }
-
-    #[test]
-    fn it_works() {
-
-        use std::path::PathBuf;
-        let ffpath = PathBuf::from("C:\\Program Files (x86)\\SquareEnix\\FINAL FANTASY XIV - A Realm Reborn\\game\\sqpack");
-        let save_file = PathBuf::from("save.json");
-        let export_path = PathBuf::from("output");
-        let bgmopts = ::BGMOptions::new(None, None, Some(::ExportMode::OGG(export_path)));
-
-
-
-        super::process_all(::AzureOptions::new(ffpath, 4usize).unwrap(), bgmopts.unwrap(), &MyCB{}).unwrap();
-
-
-    }
 }
