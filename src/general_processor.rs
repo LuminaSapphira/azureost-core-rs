@@ -178,7 +178,7 @@ pub fn process(azure_opts: AzureOptions,
         .and_then(|(ffxiv,
                        (collects, uncollects))| {
             callbacks.pre_phase(AzureProcessPhase::SavingManifest);
-            bgm_opts.save_file.as_ref()
+            let next = bgm_opts.save_file.as_ref()
                 .and_then(|save_file| {
                     Some(::serde_json::to_writer_pretty(save_file,
                                                         &ManifestFile {
@@ -191,11 +191,12 @@ pub fn process(azure_opts: AzureOptions,
                     save_res.map_err(|_| AzureError::ErrorWritingSaveFile)
                 })
                 .unwrap_or(Ok(()))
-                .map(|_| (ffxiv, collects, uncollects))
+                .map(|_| (ffxiv, collects, uncollects));
+            callbacks.post_phase(AzureProcessPhase::SavingManifest);
+            next
         })
 //        .map(|_| ())
         .and_then(|(ffxiv, collects, _uncollects)| {
-            callbacks.post_phase(AzureProcessPhase::SavingManifest);
             let export_result = bgm_opts.export_mode.clone()
                 .and_then(|export_mode| {
                     callbacks.pre_phase(AzureProcessPhase::Exporting);
