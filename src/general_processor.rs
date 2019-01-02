@@ -196,10 +196,10 @@ pub fn process(azure_opts: AzureOptions,
 //        .map(|_| ())
         .and_then(|(ffxiv, collects, _uncollects)| {
             callbacks.post_phase(AzureProcessPhase::SavingManifest);
-            callbacks.pre_phase(AzureProcessPhase::Exporting);
             let export_result = bgm_opts.export_mode.clone()
                 .and_then(|export_mode| {
-                    Some({
+                    callbacks.pre_phase(AzureProcessPhase::Exporting);
+                    let out_option = Some({
                         DirBuilder::new()
                             .recursive(true)
                             .create(export_mode.get_path())
@@ -279,10 +279,12 @@ pub fn process(azure_opts: AzureOptions,
 
                             })
 
-                    })
+                    });
+                    callbacks.post_phase(AzureProcessPhase::Exporting);
+                    out_option
                 })
                 .unwrap_or(Ok(()));
-            callbacks.post_phase(AzureProcessPhase::Exporting);
+
             export_result
 //                .map(|export_result| {
 //
