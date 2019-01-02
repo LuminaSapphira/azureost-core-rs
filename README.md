@@ -32,14 +32,14 @@ demonstrate this is
 which serves as a basic command-line interface for AzureOST.
 
 ---
-### What's not ready yet?
+#### What's not ready yet?
 
 - The codebase has been cleaned some with the refactor into a module system,
 but there's always more room for documentation.
 - Probably more things that I can't remember right now
 
 ---
-### Speed
+#### Speed
 
 **Note**: The test below is in reference to the original version of AzureOST.
 The refactored system will be tested when I am able to test on the same hardware.
@@ -52,7 +52,7 @@ I also think there's more optimization possible, once I clean and refactor the
 code. 
 
 ---
-### Modules
+#### Modules
 
 
 - azureost-core-rs - Core functionality for azureost-rs
