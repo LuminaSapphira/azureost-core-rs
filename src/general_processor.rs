@@ -213,6 +213,7 @@ pub fn process(azure_opts: AzureOptions,
                                         let index_name_map = work
                                             .iter().map(|(index, exf)| (*index, exf.get_exfile_string().clone()))
                                             .collect::<HashMap<usize, String>>();
+                                        callbacks.process_begin(AzureProcessBegin{total_operations_count: work.len()});
                                         let recv = async_processor(azure_opts.thread_count, ffxiv.clone(), &work, move |index, data| {
                                             index_name_map.get(&index).map_or(ThreadStatus::Error(format!("Invalid index passed to exporter! Index: {}", index), index), |f_name| {
                                                 let a: Vec<&str> = f_name.split("/").skip(1).collect();
