@@ -124,10 +124,6 @@ pub fn process(azure_opts: AzureOptions,
                                 if threads_completed == azure_opts.thread_count {
                                     break 'thread_recv;
                                 }
-                                callbacks.process_complete(AzureProcessComplete {
-                                    operations_completed: files_completed,
-                                    operations_errored: files_errored
-                                })
                             },
 //                            ThreadStatus::Skip => {
 //                                files_completed += 1;
@@ -141,6 +137,10 @@ pub fn process(azure_opts: AzureOptions,
                             },
                         }
                     }
+                    callbacks.process_complete(AzureProcessComplete {
+                        operations_completed: files_completed,
+                        operations_errored: files_errored
+                    });
                     callbacks.post_phase(AzureProcessPhase::Hashing);
                     Some(hashes)
                 } else {
@@ -254,10 +254,7 @@ pub fn process(azure_opts: AzureOptions,
                                                     if threads_completed == azure_opts.thread_count {
                                                         break 'thread_recv;
                                                     }
-                                                    callbacks.process_complete(AzureProcessComplete {
-                                                        operations_completed: files_completed,
-                                                        operations_errored: files_errored
-                                                    })
+
                                                 },
 //                                                ThreadStatus::Skip => {
 //                                                    files_completed += 1;
@@ -272,6 +269,10 @@ pub fn process(azure_opts: AzureOptions,
                                                     });
                                                 },
                                             } }
+                                        callbacks.process_complete(AzureProcessComplete {
+                                            operations_completed: files_completed,
+                                            operations_errored: files_errored
+                                        });
                                         Ok(())
                                     })
                                     .map_err(|o| AzureError::FFXIVError(o))
