@@ -2,7 +2,7 @@ use ::AzureError;
 use ::sqpack_blue::FFXIV;
 use ::sqpack_blue::sheet::ex::SheetLanguage;
 
-pub trait Selector {
+pub trait Selector: Send + Sync {
     fn select_azure_ost(&self, ffxiv: &FFXIV) -> Result<usize, AzureError>;
 }
 
