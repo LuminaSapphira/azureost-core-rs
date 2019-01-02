@@ -177,22 +177,24 @@ pub fn process(azure_opts: AzureOptions,
         // save manifest file
         .and_then(|(ffxiv,
                        (collects, uncollects))| {
-            callbacks.pre_phase(AzureProcessPhase::SavingManifest);
+
             let next = bgm_opts.save_file.as_ref()
                 .and_then(|save_file| {
-                    Some(::serde_json::to_writer_pretty(save_file,
+                    callbacks.pre_phase(AzureProcessPhase::SavingManifest);
+                    let write_output = Some(::serde_json::to_writer_pretty(save_file,
                                                         &ManifestFile {
                                                             files: collects.iter().cloned().chain(uncollects.iter().cloned())
                                                                 .map(|t_mf| (t_mf.index, t_mf))
                                                                 .collect::<BTreeMap<usize, TrackManifest>>()
-                                                        }))
+                                                        }));
+                    callbacks.post_phase(AzureProcessPhase::SavingManifest);
+                    write_output
                 })
                 .map(|save_res| {
                     save_res.map_err(|_| AzureError::ErrorWritingSaveFile)
                 })
                 .unwrap_or(Ok(()))
                 .map(|_| (ffxiv, collects, uncollects));
-            callbacks.post_phase(AzureProcessPhase::SavingManifest);
             next
         })
 //        .map(|_| ())
