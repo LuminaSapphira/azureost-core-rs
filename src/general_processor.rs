@@ -47,7 +47,7 @@ pub fn process(azure_opts: AzureOptions,
         // Read the BGM Sheet to transform the requested indices into ExFileIdentifiers
         .and_then(|(ffxiv, sheet)| {
             let invalid_indices = process_indicies.iter().cloned().filter(|index| {
-                *index >= sheet.rows.len()
+                !sheet.rows.contains_key(index)
             }).collect::<Vec<_>>();
             if invalid_indices.len() > 0 {
                 Err(AzureError::InvalidBGMIndex(invalid_indices))

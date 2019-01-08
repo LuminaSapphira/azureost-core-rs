@@ -141,6 +141,43 @@ pub fn bgm_csv(azure_opts: AzureOptions, output: PathBuf) -> Result<(), AzureErr
 #[cfg(test)]
 mod tests {
 
+    use super::callbacks::*;
 
+    impl AzureCallbacks for MyCB {
+        fn pre_phase(&self, phase: AzureProcessPhase) {
+            println!("PRE: {:?}", phase);
+        }
+        fn post_phase(&self, phase: AzureProcessPhase) {
+            println!("POST: {:?}", phase);
+        }
+
+        fn process_begin(&self, info: AzureProcessBegin) {
+            println!("Process Begin: {:?}", info);
+        }
+        fn process_progress(&self, info: AzureProcessProgress) {
+            println!("Process Progress: {:?}", info);
+        }
+        fn process_nonfatal_error(&self, info: AzureProcessNonfatalError) {
+            println!("Process Error: {:?}", info);
+        }
+        fn process_complete(&self, info: AzureProcessComplete) {
+            println!("Process Complete: {:?}", info);
+        }
+    }
+    struct MyCB;
+
+    #[test]
+    fn it_works() {
+        use super::*;
+        use std::path::Path;
+        use std::fs;
+        fs::remove_file("output.json").ok();
+        let azopt = AzureOptions::new(Path::new(&std::env::var("FFXIV_SQPACK_PATH").unwrap()).to_path_buf(),
+                                      4usize
+        ).unwrap();
+        let bgmopt = BGMOptions::new(Some(Path::new("output.json").to_path_buf()), None, None).unwrap();
+        process_all(azopt, bgmopt, &MyCB{}).unwrap();
+//        process_one(&639usize, azopt, bgmopt, &MyCB{}).unwrap();
+    }
 
 }

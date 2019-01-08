@@ -1,6 +1,5 @@
 use ::{BGMOptions, AzureOptions, AzureError, AzureCallbacks};
 use ::sqpack_blue::sheet::ex::SheetLanguage;
-use std::iter::FromIterator;
 use ::selector::Selector;
 
 /// Process all files in the BGM sheet using the provided AzureOptions and BGMOptions. Callbacks are
@@ -27,8 +26,11 @@ pub fn process_all(azure_opts: AzureOptions, bgm_opts: BGMOptions, callbacks: &A
                 .map_err(|e| e.into())
                 .map(|a| (ffxiv, a))
         })
-        .and_then(|(_, sheet)| {
-            ::general_processor::process(azure_opts, bgm_opts, Vec::from_iter(0..sheet.rows.len()), callbacks)
+        .map(|(_, sheet)| {
+            sheet.rows.keys().cloned().collect::<Vec<usize>>()
+        })
+        .and_then(|process_indices| {
+            ::general_processor::process(azure_opts, bgm_opts, process_indices, callbacks)
         })
 }
 
