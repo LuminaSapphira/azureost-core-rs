@@ -19,7 +19,7 @@ impl Selector for String {
             .and_then(|sheet_index| ffxiv.get_sheet(&String::from("bgm"), SheetLanguage::None, &sheet_index))
             .map_err(|_| AzureError::UnableToSelect)
             .and_then(|sheet| {
-                sheet.rows.iter().enumerate().find(|row| {
+                sheet.rows.iter().enumerate().find(|(_, row)| {
                     (row.1).read_cell_data::<String>(0)
                         .map(|title| self.eq_ignore_ascii_case(title.as_str()))
                         .unwrap_or(false)

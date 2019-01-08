@@ -55,7 +55,7 @@ pub fn process(azure_opts: AzureOptions,
                 // TODO refactor into functions
                 let (exfiles, errors): (Vec<_>, Vec<_>) =
                     process_indicies.iter().cloned()
-                        .map(|index| { (index, &sheet.rows[index]) })
+                        .map(|index| { (index, &sheet.rows[&index]) })
                         .map(|(index, row)| {
                             row.read_cell_data::<String>(0).map_err(|e| {
                                 FFXIVError::SheetError(e)
