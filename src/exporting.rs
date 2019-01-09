@@ -125,16 +125,19 @@ impl ExportMode {
 
                     let mut samples = if decoded.loop_info.is_some() {
                         let info = decoded.loop_info.unwrap();
-                        let mut final_samples = Vec::with_capacity(get_looped_len(interleaved.len(), &info, decoded.channels));
-                        final_samples.extend(interleaved.drain(0..info.start * decoded.channels));
-                        final_samples.extend(interleaved.iter().cloned().take((info.end - info.start) * decoded.channels));
-                        final_samples.extend(interleaved.drain(0..(info.end - info.start) * decoded.channels));
+                        let mut final_samples = Vec::with_capacity(get_looped_len(interleaved.len(), &info, 2));
+                        final_samples.extend(interleaved.drain(0..info.start * 2));
+                        final_samples.extend(interleaved.iter().cloned().take((info.end - info.start) * 2));
+                        let range = 0..((info.end - info.start) * 2);
+                        final_samples.extend(interleaved.drain(range));
                         final_samples.extend(interleaved);
                         final_samples
                     } else {
                         interleaved
                     };
-                    fade(&mut samples, decoded.rate, decoded.channels);
+                    fade(&mut samples, decoded.rate, 2);
+
+                    let layer_name = decoded.channels / 2 - layer_index;
 
                     let mut base_path = String::from(base_path);
                     let bp_len = base_path.len();
@@ -147,9 +150,9 @@ impl ExportMode {
                         }
                     } else {
                         if scd_entry_count == 1 {
-                            format!("{}_layer{}", base_path, layer_index)
+                            format!("{}_layer{}", base_path, layer_name)
                         } else {
-                            format!("{}_entry{}_layer{}", base_path, scd_entry_index, layer_index)
+                            format!("{}_entry{}_layer{}", base_path, scd_entry_index, layer_name)
                         }
                     };
 
