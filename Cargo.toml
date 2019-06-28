@@ -20,4 +20,4 @@ fallible-iterator = "0.1.6"
 
 [dependencies.sqpack_blue]
 git = "https://github.com/CerulanLumina/sqpack-blue"
-branch = "dev"
+branch = "shadowbringers"
