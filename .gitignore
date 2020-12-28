@@ -5,7 +5,6 @@ lib-sqpackblue/target/**/*
 lib-sqpackblue/target/**/.*
 **/*.rs.bk
 **/*.dat
-**/Cargo.lock
 **/*.exd
 **/*.exh
 **/*.zlib
