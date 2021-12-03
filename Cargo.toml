@@ -1,6 +1,6 @@
 [package]
 name = "azure-ost-core"
-version = "0.1.12"
+version = "0.1.13"
 authors = ["Cerulan Lumina <cerulan@cerulan.net>"]
 edition = "2015"
 
