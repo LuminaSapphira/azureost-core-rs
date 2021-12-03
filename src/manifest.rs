@@ -1,6 +1,7 @@
 use ::sha1::Digest;
 use std::collections::BTreeMap;
-
+use serde::Serialize;
+use serde::Deserialize;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManifestFile {
     // A binary tree map is used in favor of a HashMap to preserve ordering.

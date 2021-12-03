@@ -4,9 +4,6 @@ extern crate fallible_iterator;
 extern crate sha1;
 extern crate serde;
 
-#[macro_use]
-extern crate serde_derive;
-
 extern crate serde_json;
 
 use std::path::PathBuf;
