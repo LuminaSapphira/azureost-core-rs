@@ -2,6 +2,7 @@
 name = "azure-ost-core"
 version = "0.1.12"
 authors = ["Cerulan Lumina <cerulan@cerulan.net>"]
+edition = "2015"
 
 [features]
 lamemp3 = ["lame"]
