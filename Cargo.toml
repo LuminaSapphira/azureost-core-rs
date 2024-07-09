@@ -1,6 +1,6 @@
 [package]
 name = "azure-ost-core"
-version = "0.1.14"
+version = "0.1.15"
 authors = ["Cerulan Lumina <cerulan@cerulan.net>"]
 edition = "2015"
 
@@ -22,6 +22,7 @@ version = "1.0.130"
 features = ["derive"]
 
 [dependencies.sqpack_blue]
+#path = "../sqpack-blue"
 git = "https://github.com/CerulanLumina/sqpack-blue"
 branch = "dev"
-version = "0.0.10"
+version = "0.0.11"
